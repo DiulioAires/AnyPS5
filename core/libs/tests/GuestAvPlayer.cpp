@@ -963,6 +963,32 @@ void TestFileReplacementAutoStart() {
     Check(!file.stream.is_open(), "replaced file left open");
 }
 
+void TestNoSyncVideoTracksAudioClock() {
+    AvPlayerInitData init = InitData(nullptr);
+    auto* player = sceAvPlayerInit(&init);
+    Check(player != nullptr, "init failed");
+    Check(sceAvPlayerSetAvSyncMode(player, 1) == 0, "no-sync mode rejected");
+    Check(sceAvPlayerAddSource(player, "/app0/avplayer.mp4") == 0, "add source failed");
+
+    AvPlayerFrameInfo audio{};
+    std::uint64_t audioTime = 0;
+    for (int chunk = 0; chunk < 12; ++chunk) {
+        Check(WaitFor([&] {
+            if (!sceAvPlayerGetAudioData(player, &audio)) return false;
+            CheckEnglishAudio(audio);
+            audioTime = audio.timestamp;
+            return true;
+        }), "audio did not advance");
+    }
+    Check(audioTime >= 200, "audio clock did not advance far enough for the lag regression");
+
+    AvPlayerFrameInfoEx video{};
+    Check(WaitFor([&] { return sceAvPlayerGetVideoDataEx(player, &video) != 0; }), "no video frame");
+    CheckVideoFrame(video);
+    Check(video.timestamp + 100 >= audioTime, "no-sync video fell more than 100 ms behind audio");
+    Check(sceAvPlayerClose(player) == 0, "close failed");
+}
+
 void TestHandedOutFramesStayIntact() {
     constexpr int Buffers = 6;
     constexpr int Retained = Buffers - 2;
@@ -1004,6 +1030,7 @@ int main() {
         TestWithoutAllocators();
         TestOptionalVideoBuffersRespectMemoryLimit();
         TestFileReplacementAutoStart();
+        TestNoSyncVideoTracksAudioClock();
         TestHandedOutFramesStayIntact();
         std::puts("AvPlayer tests passed");
         return 0;

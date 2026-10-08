@@ -501,6 +501,11 @@ private:
         const auto stale = synced ? std::max(minEpoch, clockEpoch) : minEpoch;
         while (!frames.empty() && frames.front().epoch < stale) recycleFront(video);
         if (frames.empty()) return false;
+        if (synced || audioDriving) {
+            const auto now = presentationClock.Now();
+            if (synced && static_cast<double>(frames.front().info.timestamp) > now) return false;
+            while (frames.size() > 1 && frames[1].epoch == frames.front().epoch && static_cast<double>(frames[1].info.timestamp) <= now) recycleFront(video);
+        }
         const auto& front = frames.front();
         if (paused && front.epoch <= clockEpoch) return false;
         if (front.epoch > clockEpoch) {
@@ -508,11 +513,6 @@ private:
             if (synced && front.seamless && presented && presentationClock.Now() < static_cast<double>(lastPresented + frameDuration())) return false;
             presentationClock.Rebase(static_cast<double>(front.info.timestamp));
             clockEpoch = front.epoch;
-        }
-        if (synced) {
-            const auto now = presentationClock.Now();
-            if (static_cast<double>(front.info.timestamp) > now) return false;
-            while (frames.size() > 1 && frames[1].epoch == frames.front().epoch && static_cast<double>(frames[1].info.timestamp) <= now) recycleFront(video);
         }
         present(video, info);
         presented = true;
