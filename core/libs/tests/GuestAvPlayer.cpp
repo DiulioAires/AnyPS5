@@ -702,6 +702,32 @@ void CheckStreamInfoEx(AvPlayerInternal* player) {
     Check(sceAvPlayerGetStreamInfoEx(nullptr, 0, &unused) == InvalidParams, "null player accepted");
 }
 
+void TestNoSyncVideoTracksAudioClock() {
+    AvPlayerInitData init = InitData(nullptr);
+    auto* player = sceAvPlayerInit(&init);
+    Check(player != nullptr, "init failed");
+    Check(sceAvPlayerSetAvSyncMode(player, 1) == 0, "no-sync mode rejected");
+    Check(sceAvPlayerAddSource(player, "/app0/avplayer.mp4") == 0, "add source failed");
+
+    AvPlayerFrameInfo audio{};
+    std::uint64_t audioTime = 0;
+    for (int chunk = 0; chunk < 12; ++chunk) {
+        Check(WaitFor([&] {
+            if (!sceAvPlayerGetAudioData(player, &audio)) return false;
+            CheckEnglishAudio(audio);
+            audioTime = audio.timestamp;
+            return true;
+        }), "audio did not advance");
+    }
+    Check(audioTime >= 200, "audio clock did not advance far enough for the lag regression");
+
+    AvPlayerFrameInfoEx video{};
+    Check(WaitFor([&] { return sceAvPlayerGetVideoDataEx(player, &video) != 0; }), "no video frame");
+    CheckVideoFrame(video);
+    Check(video.timestamp + 100 >= audioTime, "no-sync video fell more than 100 ms behind audio");
+    Check(sceAvPlayerClose(player) == 0, "close failed");
+}
+
 void TestPlayback() {
     Events events;
     AvPlayerInitData init = InitData(&events);
@@ -961,32 +987,6 @@ void TestFileReplacementAutoStart() {
     Check(frame.details.video.width == 112 && frame.details.video.height == 64 && IsAllocation(frame.p_data, true), "unexpected auto start frame");
     Check(sceAvPlayerClose(player) == 0, "close failed");
     Check(!file.stream.is_open(), "replaced file left open");
-}
-
-void TestNoSyncVideoTracksAudioClock() {
-    AvPlayerInitData init = InitData(nullptr);
-    auto* player = sceAvPlayerInit(&init);
-    Check(player != nullptr, "init failed");
-    Check(sceAvPlayerSetAvSyncMode(player, 1) == 0, "no-sync mode rejected");
-    Check(sceAvPlayerAddSource(player, "/app0/avplayer.mp4") == 0, "add source failed");
-
-    AvPlayerFrameInfo audio{};
-    std::uint64_t audioTime = 0;
-    for (int chunk = 0; chunk < 12; ++chunk) {
-        Check(WaitFor([&] {
-            if (!sceAvPlayerGetAudioData(player, &audio)) return false;
-            CheckEnglishAudio(audio);
-            audioTime = audio.timestamp;
-            return true;
-        }), "audio did not advance");
-    }
-    Check(audioTime >= 200, "audio clock did not advance far enough for the lag regression");
-
-    AvPlayerFrameInfoEx video{};
-    Check(WaitFor([&] { return sceAvPlayerGetVideoDataEx(player, &video) != 0; }), "no video frame");
-    CheckVideoFrame(video);
-    Check(video.timestamp + 100 >= audioTime, "no-sync video fell more than 100 ms behind audio");
-    Check(sceAvPlayerClose(player) == 0, "close failed");
 }
 
 void TestHandedOutFramesStayIntact() {
